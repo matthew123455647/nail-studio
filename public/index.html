@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Polished Nail Studio — Manicures, Gel, Nail Art & DIY Nail Sets</title>
+  <meta name="description" content="Book a manicure, gel extensions or nail art at Polished Nail Studio, or shop press-on and DIY nail sets to do at home.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="topbar">
+    <div class="wrap topbar-inner">
+      <span>Open daily 10am – 6pm</span>
+      <span class="topbar-mid">Book online in under a minute ✦ every booking confirmed by our studio team</span>
+      <span>Singapore</span>
+    </div>
+  </div>
+  <header class="site-header">
+    <div class="wrap bar">
+      <a class="logo" href="#" data-go="home" aria-label="Polished Nail Studio — home">Polished<small>Nail Studio</small></a>
+      <nav id="nav" aria-label="Main"></nav>
+    </div>
+  </header>
+  <main class="wrap" id="app"></main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div class="footer-brand">
+        <a class="logo" href="#" data-go="home">Polished<small>Nail Studio</small></a>
+        <p>Considered nail care, beautiful finishes and at-home nail sets — made for your moments of self-care.</p>
+      </div>
+      <div>
+        <h4>Visit</h4>
+        <p>Orchard Road<br>Singapore</p>
+        <p class="footer-muted">Walk-ins welcome, appointments preferred.</p>
+      </div>
+      <div>
+        <h4>Opening hours</h4>
+        <ul class="hours">
+          <li><span>Monday – Friday</span><span>10am – 6pm</span></li>
+          <li><span>Saturday</span><span>10am – 6pm</span></li>
+          <li><span>Sunday</span><span>10am – 6pm</span></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Explore</h4>
+        <ul class="footer-links">
+          <li><a href="#" data-go="home">Book an appointment</a></li>
+          <li><a href="#" data-go="gallery">Nail gallery</a></li>
+          <li><a href="#" data-go="shop">Shop nail sets</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="wrap footer-base">
+      <span>© <span id="year"></span> Polished Nail Studio. All rights reserved.</span>
+      <span>Demo checkout — no payments are taken.</span>
+    </div>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  <script src="app.js"></script>
+</body>
+</html>
