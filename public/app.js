@@ -1,4 +1,5 @@
 /* ===== tiny helpers ===== */
+document.documentElement.classList.add('js');
 const $app = document.getElementById('app');
 const $nav = document.getElementById('nav');
 const state = {
@@ -120,6 +121,32 @@ async function render() {
     else if (v === 'myorders') await viewMyOrders();
     else if (v === 'admin') await viewAdmin();
   } catch (err) { toast(err.message, true); }
+  initMotion();
+}
+
+/* ===== motion: scroll reveals + hero parallax (respects reduced-motion) ===== */
+function initMotion() {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (state.view !== 'home') {
+    $app.querySelectorAll('.page-heading, .gallery-card, .product, .review-card').forEach((el, i) => { el.classList.add('reveal'); el.style.transitionDelay = (i % 4) * 70 + 'ms'; });
+  }
+  const els = [...$app.querySelectorAll('.reveal')];
+  if (reduce || !('IntersectionObserver' in window)) { els.forEach((el) => el.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries) => entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }), { threshold: 0.1, rootMargin: '0px 0px -5% 0px' });
+  els.forEach((el) => io.observe(el));
+  setTimeout(() => els.forEach((el) => el.classList.add('in')), 4000); // safety net: never leave content hidden
+  const hero = $app.querySelector('.hero');
+  if (hero && matchMedia('(hover: hover)').matches) {
+    let raf;
+    hero.addEventListener('pointermove', (ev) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = hero.getBoundingClientRect();
+        hero.style.setProperty('--mx', ((ev.clientX - r.left) / r.width - 0.5).toFixed(3));
+        hero.style.setProperty('--my', ((ev.clientY - r.top) / r.height - 0.5).toFixed(3));
+      });
+    });
+  }
 }
 
 /* ---- auth ---- */
@@ -196,14 +223,62 @@ async function viewBook() {
   const b = state.booking;
   if (!b.serviceId && state.services.length) b.serviceId = state.services[0].id;
   if (!b.date) b.date = todayStr();
+  const heroNails = [['#e7c3bd', 58, 0], ['#b86b78', 76, .6], ['#f1d3cd', 92, 1.2, 'tip'], ['#7d2f43', 74, .3], ['#d7b98a', 56, .9]];
+  const showcase = ['g1', 'g6', 'g3', 'g5'].map((id) => galleryDesigns.find((d) => d.id === id)).filter(Boolean);
+  const faqs = [
+    ['How does booking work?', 'Choose a treatment, date and time and send your request. It stays pending until our studio team confirms it, and you can follow its status any time in My bookings.'],
+    ['Can I cancel a booking?', 'Yes. You can cancel a pending or accepted booking from My bookings. To change the time, cancel it and request a new slot.'],
+    ['Do I earn rewards?', 'Yes — 50 points for every completed visit and 25 for every delivered nail-set order. Every 100 points takes S$5 off your next order at checkout.'],
+    ['What are the nail sets?', 'Press-on sets and DIY kits you apply at home. Each set lists exactly what is included, and the stock left is always shown.'],
+    ['Do I need an account?', 'You can browse everything freely. A free account is needed to book or order, so your details, history and rewards stay in one place.'],
+  ];
   $app.innerHTML = `
-    <section class="landing-hero"><div class="landing-copy"><span class="eyebrow">A LITTLE LUXURY, JUST FOR YOU</span><h1>Your nails.<br><em>Your moment.</em></h1><p>Beautiful nails, thoughtful care, and tiny details that make you feel like you.</p><div class="hero-actions"><button class="btn" data-scroll="booking">Book an appointment <span>↗</span></button><button class="btn ghost" data-go="shop">Shop nail sets</button></div><div class="hero-proof"><span>✦</span> Made with care, worn with confidence</div></div><div class="landing-art"><div class="hero-arch"><div class="art-spark spark-one">✦</div><div class="art-spark spark-two">✧</div><div class="hero-nails"><span style="--c:#e7c3bd"></span><span style="--c:#b86b78"></span><span class="tip" style="--c:#f1d3cd"></span><span style="--c:#7d2f43"></span><span style="--c:#d7b98a"></span></div></div><div class="hero-badge"><span>The Polished edit</span><strong>Soft tones. Bold confidence.</strong></div></div></section>
-    <section class="trust-strip"><div><strong>01</strong><span>Personalised nail care</span></div><div><strong>02</strong><span>Made for your style</span></div><div><strong>03</strong><span>Little details, big mood</span></div></section>
-    <section class="section-heading"><div><span class="eyebrow">THE STUDIO MENU</span><h2>A little something for you</h2><p>Find your next favourite self-care ritual.</p></div><button class="text-link" data-scroll="booking">Book your visit ↗</button></section>
-    <div class="grid service-grid">${state.services.map((s,i) => `<article class="service-card"><div class="service-icon">${['✿','♡','✧','❀'][i%4]}</div><span class="service-number">0${i+1}</span><h3>${esc(s.name)}</h3><p>${s.duration} minutes of me-time</p><div class="service-bottom"><strong>${money(s.price)}</strong><button class="round-arrow" data-book-service="${s.id}" aria-label="Choose ${esc(s.name)}">↗</button></div></article>`).join('')}</div>
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow eyebrow-line">Nail studio · Singapore</span>
+        <h1><span class="line"><span>Your nails.</span></span><span class="line"><em><span>Your moment.</span></em></span></h1>
+        <p class="hero-lead">Beautiful nails, thoughtful care, and tiny details that make you feel like you.</p>
+        <div class="hero-actions"><button class="btn" data-scroll="booking">Book an appointment <span>↗</span></button><button class="btn ghost" data-go="shop">Shop nail sets</button></div>
+        <dl class="hero-facts"><div><dt>${state.services.length}</dt><dd>Signature treatments</dd></div><div><dt>7</dt><dd>Days a week</dd></div><div><dt>10–6</dt><dd>Open daily</dd></div></dl>
+      </div>
+      <div class="hero-art">
+        <div class="hero-stage" aria-hidden="true">
+          <div class="stage-arch arch-back"></div>
+          <div class="stage-arch arch-front"><div class="stage-glow"></div></div>
+          <div class="stage-nails">${heroNails.map(([c, h, d, cls]) => `<span class="${cls || ''}" style="--c:${c};--h:${h}%;--d:${d}s"></span>`).join('')}</div>
+          <span class="stage-spark s1">✦</span><span class="stage-spark s2">✧</span><span class="stage-spark s3">✦</span>
+        </div>
+        <button class="seal" data-scroll="booking" aria-label="Book an appointment"><svg class="seal-ring" viewBox="0 0 120 120" aria-hidden="true"><defs><path id="sealPath" d="M60,60 m-45,0 a45,45 0 1,1 90,0 a45,45 0 1,1 -90,0"/></defs><text><textPath href="#sealPath" startOffset="0">BOOK YOUR MOMENT ✦ BOOK YOUR MOMENT ✦ </textPath></text></svg><span class="seal-star">↗</span></button>
+      </div>
+    </section>
+    <div class="marquee" aria-hidden="true"><div class="marquee-track">${[0, 1].map(() => state.services.map((sv) => `<span>${esc(sv.name)}</span><i>✦</i>`).join('')).join('')}</div></div>
+    <section class="menu reveal">
+      <div class="menu-side"><span class="eyebrow">The studio menu</span><h2>A little something <em>for you</em></h2><p>Find your next favourite self-care ritual. Choose a treatment to start your booking.</p><button class="text-link" data-scroll="booking">Book your visit ↗</button></div>
+      <ul class="menu-list">${state.services.map((sv, i) => `<li><button class="menu-row" data-book-service="${sv.id}"><span class="menu-no">0${i + 1}</span><span class="menu-name">${esc(sv.name)}<small>${sv.duration} minutes</small></span><span class="menu-dots"></span><span class="menu-price">${money(sv.price)}</span><span class="menu-go">↗</span></button></li>`).join('')}</ul>
+    </section>
+    <section class="ritual reveal">
+      <div class="center-heading"><span class="eyebrow">How it works</span><h2>Four simple steps to <em>polished.</em></h2></div>
+      <ol class="ritual-list">
+        <li><span>01</span><h3>Choose</h3><p>Pick your treatment, date and time online in under a minute.</p></li>
+        <li><span>02</span><h3>Confirm</h3><p>Our studio team reviews your request and confirms your booking.</p></li>
+        <li><span>03</span><h3>Relax</h3><p>Arrive, settle in and let us take care of every detail.</p></li>
+        <li><span>04</span><h3>Glow</h3><p>Leave with nails you love — and earn rewards points for next time.</p></li>
+      </ol>
+    </section>
     <section class="booking-section" id="booking"><div class="booking-intro"><span class="eyebrow">YOUR NEXT APPOINTMENT</span><h2>Let's make time<br>for <em>you.</em></h2><p>Choose your treatment and preferred time. We'll confirm your booking shortly.</p><div class="booking-note">♡ <span>Bookings are confirmed by our studio team.</span></div></div><div class="card booking-card"><div class="booking-step"><span>01</span><div><strong>Choose your treatment</strong><small>Pick your favourite service</small></div></div><label>Service</label><select id="svc">${state.services.map((s) => `<option value="${s.id}" ${s.id === b.serviceId ? 'selected' : ''}>${esc(s.name)} — ${money(s.price)} · ${s.duration} min</option>`).join('')}</select><div class="row"><div><label>Date</label><input type="date" id="date" min="${todayStr()}" value="${b.date}"></div><div><label>Time</label><div class="slots" id="slots"></div></div></div><label>Anything we should know? <span class="optional">Optional</span></label><textarea id="notes" placeholder="Design inspiration, preferences, or notes...">${esc(b.notes)}</textarea><button class="btn booking-submit" id="submit">Request my appointment <span>→</span></button><p class="small-note">${state.user ? '' : 'You can sign in before confirming.'} No payment required to request a booking.</p></div></section>
+    <section class="showcase reveal">
+      <div class="section-heading"><div><span class="eyebrow">The Polished edit</span><h2>Find your next <em>nail mood</em></h2></div><button class="text-link" data-go="gallery">View the gallery ↗</button></div>
+      <div class="showcase-grid">${showcase.map((d, i) => `<button class="showcase-tile tone-${i % 4}" data-go="gallery" aria-label="${esc(d.name)} — view the gallery"><div class="nail-set-art finish-${galleryFinish[d.category] || 'plain'}" style="--nail-color:${galleryColors[d.id] || '#d98c9a'}"><i></i><i></i><i></i><i></i><i></i></div><span class="tile-cap"><small>${esc(d.category)}</small><strong>${esc(d.name)}</strong></span></button>`).join('')}</div>
+    </section>
     <section class="home-reviews" id="homeReviews" hidden><div class="section-heading"><div><span class="eyebrow">KIND WORDS</span><h2>Loved by our clients</h2></div><button class="text-link" data-go="gallery">See the gallery ↗</button></div><div class="review-list"></div></section>
-    <section class="shop-promo"><div><span class="eyebrow">AT-HOME NAIL LOVE</span><h2>Your salon mood,<br><em>wherever you are.</em></h2><p>Explore press-on sets and DIY kits curated for your next nail moment.</p><button class="btn" data-go="shop">Explore the shop ↗</button></div><div class="promo-stacks"><span>🌸</span><span>🤍</span><span>✨</span></div></section>`;
+    <section class="shop-feature reveal">
+      <div class="shop-feature-copy"><span class="eyebrow">At-home nail love</span><h2>Your salon mood, <em>wherever you are.</em></h2><p>Press-on sets and DIY kits, curated for your next nail moment. Apply them yourself in minutes.</p><button class="btn btn-light" data-go="shop">Explore the shop <span>↗</span></button></div>
+      <div class="shop-feature-grid">${state.products.slice(0, 3).map((pr, i) => `<button class="mini-product" data-go="shop" aria-label="${esc(pr.name)} — open the shop"><div class="mini-art tone-${i % 4}">${pr.imageUrl ? `<img src="${esc(pr.imageUrl)}" alt="" onerror="this.remove()">` : `<div class="nail-set-art mini" style="--nail-color:${esc(pr.nailColor || '#d98c9a')}"><i></i><i></i><i></i><i></i><i></i></div>`}</div><strong>${esc(pr.name)}</strong><span>${money(pr.price)}</span></button>`).join('')}</div>
+    </section>
+    <section class="faq reveal">
+      <div class="faq-head"><span class="eyebrow">Good to know</span><h2>Questions, <em>answered.</em></h2></div>
+      <div class="faq-list">${faqs.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
+    </section>`;
   document.querySelectorAll('[data-scroll]').forEach(el => el.onclick = () => document.getElementById(el.dataset.scroll)?.scrollIntoView({behavior:'smooth'}));
   document.querySelectorAll('[data-book-service]').forEach(el => el.onclick = () => { b.serviceId = el.dataset.bookService; document.getElementById('svc').value = b.serviceId; document.getElementById('booking').scrollIntoView({behavior:'smooth'}); });
   document.getElementById('svc').onchange = (e) => (b.serviceId = e.target.value);
