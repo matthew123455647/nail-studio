@@ -8,7 +8,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'data.json');
+const DB_FILE = path.join(process.env.DATA_DIR || __dirname, 'data.json'); // set DATA_DIR to a persistent disk when hosting
 
 /* ---------- password hashing ---------- */
 function hashPw(pw) {
@@ -27,7 +27,7 @@ const uid = () => crypto.randomBytes(6).toString('hex');
 function seed() {
   return {
     users: [
-      { id: uid(), name: 'Admin', email: 'admin@nailstudio.com', phone: '', role: 'admin', password: hashPw('admin123') },
+      { id: uid(), name: 'Admin', email: process.env.ADMIN_EMAIL || 'admin@nailstudio.com', phone: '', role: 'admin', password: hashPw(process.env.ADMIN_PASSWORD || 'admin123') },
     ],
     sessions: {},
     services: [
@@ -39,10 +39,10 @@ function seed() {
       { id: 's6', name: 'Removal + Rebuild', duration: 75, price: 35 },
     ],
     products: [
-      { id: uid(), name: 'Rose Quartz Press-On Set', description: '24 reusable press-on nails, 12 sizes, glossy pink. Includes glue tabs, file and prep pad.', price: 22, stock: 30, emoji: '🌸' },
-      { id: uid(), name: 'French Tip DIY Kit', description: 'Short almond press-ons with classic white tips, nail glue, buffer and cuticle stick.', price: 24, stock: 25, emoji: '🤍' },
-      { id: uid(), name: 'Chrome Mirror Set', description: 'Long coffin press-ons with a mirror chrome finish. 24 pieces, 12 sizes.', price: 28, stock: 18, emoji: '✨' },
-      { id: uid(), name: 'Gel Polish Starter Kit', description: 'Mini LED lamp, 3 gel colours, base and top coat, remover wipes. Do your own gel at home.', price: 55, stock: 12, emoji: '💅' },
+      { id: uid(), name: 'Rose Quartz Press-On Set', description: '24 reusable press-on nails, 12 sizes, glossy pink. Includes glue tabs, file and prep pad.', price: 22, stock: 30, emoji: '🌸', nailColor: '#e6a9b4' },
+      { id: uid(), name: 'French Tip DIY Kit', description: 'Short almond press-ons with classic white tips, nail glue, buffer and cuticle stick.', price: 24, stock: 25, emoji: '🤍', nailColor: '#f1d3cd' },
+      { id: uid(), name: 'Chrome Mirror Set', description: 'Long coffin press-ons with a mirror chrome finish. 24 pieces, 12 sizes.', price: 28, stock: 18, emoji: '✨', nailColor: '#c7c1cc' },
+      { id: uid(), name: 'Gel Polish Starter Kit', description: 'Mini LED lamp, 3 gel colours, base and top coat, remover wipes. Do your own gel at home.', price: 55, stock: 12, emoji: '💅', nailColor: '#a5222f' },
     ],
     bookings: [],
     orders: [],
@@ -51,17 +51,123 @@ function seed() {
 }
 
 let db;
-function load() {
-  if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  else { db = seed(); save(); }
+
+/* ---------- storage: Firebase Firestore (if configured) or a local JSON file ----------
+   Firestore keeps every customer, booking, order, etc. as its own document, so data survives
+   restarts and redeploys. The app keeps a copy in memory (fast) and writes changes back. */
+const USE_FIREBASE = !!(process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_B64 || process.env.GOOGLE_APPLICATION_CREDENTIALS);
+const LIST_COLLECTIONS = ['users', 'services', 'products', 'bookings', 'orders', 'reviews', 'activity'];
+const KEEP_ORDER = ['users', 'services', 'products', 'bookings', 'orders', 'reviews']; // activity is ordered by time
+let fsdb = null;
+// JSON with sorted keys, so records compare equal no matter what order Firestore returns fields in
+const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));
+let lastSaved = new Map();   // "collection/id" -> JSON string last written to Firestore
+let flushTimer = null, flushing = Promise.resolve();
+
+function initFirebase() {
+  const admin = require('firebase-admin');
+  let credential;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_B64)
+    credential = admin.credential.cert(JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf8')));
+  else if (process.env.FIREBASE_SERVICE_ACCOUNT)
+    credential = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT));
+  else credential = admin.credential.applicationDefault();
+  admin.initializeApp({ credential });
+  fsdb = admin.firestore();
 }
+
+/* Turn the in-memory db into a flat map of Firestore documents. */
+function toDocs() {
+  const docs = new Map();
+  for (const name of LIST_COLLECTIONS) {
+    (db[name] || []).forEach((item, i) => {
+      const data = KEEP_ORDER.includes(name) ? { ...item, _pos: i } : item;
+      docs.set(`${name}/${item.id}`, stable(data));
+    });
+  }
+  for (const [token, userId] of Object.entries(db.sessions || {})) docs.set(`sessions/${token}`, stable({ token, userId }));
+  return docs;
+}
+
+async function fsLoad() {
+  const out = { sessions: {} };
+  let total = 0;
+  for (const name of LIST_COLLECTIONS) {
+    const snap = await fsdb.collection(name).get();
+    const rows = snap.docs.map((d) => d.data());
+    rows.forEach((r) => lastSaved.set(`${name}/${r.id}`, stable(r)));
+    if (KEEP_ORDER.includes(name)) rows.sort((a, b) => (a._pos ?? 0) - (b._pos ?? 0)).forEach((r) => delete r._pos);
+    else rows.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+    out[name] = rows;
+    total += rows.length;
+  }
+  const sessSnap = await fsdb.collection('sessions').get();
+  sessSnap.docs.forEach((d) => { const r = d.data(); out.sessions[r.token] = r.userId; lastSaved.set(`sessions/${r.token}`, stable(r)); total++; });
+  return total ? out : null;     // null = brand-new, empty Firestore
+}
+
+/* Write only what changed since the last successful flush. */
+async function flushToFirestore() {
+  const want = toDocs();
+  const ops = [];
+  for (const [key, json] of want) if (lastSaved.get(key) !== json) ops.push({ key, json });
+  const deletes = [...lastSaved.keys()].filter((k) => !want.has(k));
+  const all = [...ops.map((o) => ({ type: 'set', ...o })), ...deletes.map((key) => ({ type: 'del', key }))];
+  for (let i = 0; i < all.length; i += 400) {
+    const chunk = all.slice(i, i + 400);
+    const batch = fsdb.batch();
+    for (const op of chunk) {
+      const [col, ...rest] = op.key.split('/'); const ref = fsdb.collection(col).doc(rest.join('/'));
+      if (op.type === 'set') batch.set(ref, JSON.parse(op.json)); else batch.delete(ref);
+    }
+    await batch.commit();
+    chunk.forEach((op) => (op.type === 'set' ? lastSaved.set(op.key, op.json) : lastSaved.delete(op.key)));
+  }
+}
+
+function scheduleFlush(delay = 40) {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flushing = flushing.then(flushToFirestore).catch((err) => {
+      console.error('Firestore write failed (will retry):', err.message);
+      scheduleFlush(5000);
+    });
+  }, delay);
+}
+async function flushNow() {
+  if (!USE_FIREBASE) return;
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  flushing = flushing.then(flushToFirestore);
+  await flushing;
+}
+
 function save() {
+  if (USE_FIREBASE) return scheduleFlush();
   fs.writeFileSync(DB_FILE + '.tmp', JSON.stringify(db, null, 2));
   fs.renameSync(DB_FILE + '.tmp', DB_FILE);
 }
-load();
-if (!Array.isArray(db.reviews)) { db.reviews = []; save(); }
-if (!Array.isArray(db.activity)) { db.activity = []; save(); }
+
+async function loadData() {
+  if (USE_FIREBASE) {
+    initFirebase();
+    db = await fsLoad();
+    if (db) { console.log('Loaded data from Firebase Firestore.'); return; }
+    // Firestore is empty: import an existing data.json once, otherwise start fresh
+    if (fs.existsSync(DB_FILE)) { db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); console.log('Imported existing data.json into Firebase.'); }
+    else { db = seed(); console.log('Created fresh data in Firebase.'); }
+    db.sessions = db.sessions || {};
+    normalize(); await flushNow();
+    return;
+  }
+  if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  else { db = seed(); save(); }
+  normalize();
+}
+function normalize() {
+  for (const name of LIST_COLLECTIONS) if (!Array.isArray(db[name])) db[name] = [];
+  if (!db.sessions || typeof db.sessions !== 'object') db.sessions = {};
+}
 
 /* ---------- activity log (sign-ups and logins, shown to admin in Records) ---------- */
 function logActivity(type, user) {
@@ -375,7 +481,14 @@ app.patch('/api/orders/:id', auth, adminOnly, (req, res) => {
   res.json(o);
 });
 
-app.listen(PORT, () => {
-  console.log(`Nail Studio running at http://localhost:${PORT}`);
-  console.log('Admin login: admin@nailstudio.com / admin123  (change this!)');
-});
+loadData().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Nail Studio running at http://localhost:${PORT}`);
+    console.log(USE_FIREBASE ? 'Storage: Firebase Firestore' : 'Storage: local file (data.json) — set a Firebase key to keep data safe on hosts that reset their disk');
+    if (process.env.ADMIN_PASSWORD) console.log('Admin account uses ADMIN_EMAIL / ADMIN_PASSWORD (applied when the data is first created).');
+    else console.log('Admin login: admin@nailstudio.com / admin123  (demo only — set ADMIN_PASSWORD before going live!)');
+  });
+}).catch((err) => { console.error('Could not start — storage failed to load:', err.message); process.exit(1); });
+
+// make sure pending writes reach Firebase when the host stops the app (e.g. a redeploy)
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { try { await flushNow(); } catch (e) { console.error(e.message); } process.exit(0); });
